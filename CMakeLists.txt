@@ -115,13 +115,16 @@ ${UDEF}
 $<$<COMPILE_LANGUAGE:CXX>:${CPPWARN} ${CPPOPTS}> 
 $<$<COMPILE_LANGUAGE:C>:${CWARN} ${COPTS}>
 $<$<CONFIG:Debug>:-ggdb -Og>
-$<$<CONFIG:Release>: -O2>
+$<$<CONFIG:Release>: -Os>
+$<$<CONFIG:MinSizeRel>: -Os>
+$<$<CONFIG:RelWithDebInfo>:-ggdb -Os>
 )
 
 target_link_options(${EXECUTABLE} PRIVATE
 ${MCU}
 -specs=nano.specs
 -lstdc++ 
+-lsupc++
 -lc 
 -lm 
 -lnosys

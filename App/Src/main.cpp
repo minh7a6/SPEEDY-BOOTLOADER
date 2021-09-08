@@ -30,6 +30,26 @@ static kocherga_uavcan::HardwareInfo hwInfo;
 
 void SystemClock_Config(void);
 
+extern "C" {
+static inline void usartInit(void)
+{
+    LL_USART_InitTypeDef USART_InitStruct;
+
+    /* Peripheral clock enable */
+    LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USART2);
+    
+    USART_InitStruct.BaudRate = 115200;
+    USART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
+    USART_InitStruct.StopBits = LL_USART_STOPBITS_1;
+    USART_InitStruct.Parity = LL_USART_PARITY_NONE;
+    USART_InitStruct.TransferDirection = LL_USART_DIRECTION_TX_RX;
+    USART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
+    ErrorStatus stat;
+    stat = LL_USART_Init(USART2, &USART_InitStruct);
+    if(stat != SUCCESS) Error_Handler();
+    LL_USART_Enable(USART2);
+    __NOP();
+}
 static void gpioInit(void)
 {
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOF);
@@ -76,6 +96,9 @@ static void gpioInit(void)
   gpioStruct.Pull = LL_GPIO_PULL_NO;
   LL_GPIO_Init(GPIOA, &gpioStruct);
 }
+}
+
+
 
 static inline uint8_t getID(void)
 {
@@ -89,22 +112,6 @@ static inline uint8_t getID(void)
   return res;
 }
 
-void usartInit(void)
-{
-    LL_USART_InitTypeDef USART_InitStruct;
-
-    /* Peripheral clock enable */
-    LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USART2);
-    
-    USART_InitStruct.BaudRate = 115200;
-    USART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
-    USART_InitStruct.StopBits = LL_USART_STOPBITS_1;
-    USART_InitStruct.Parity = LL_USART_PARITY_NONE;
-    USART_InitStruct.TransferDirection = LL_USART_DIRECTION_TX_RX;
-    USART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
-    LL_USART_Init(USART2, &USART_InitStruct);
-    LL_USART_Enable(USART2);
-}
 
 /**
   * @brief  The application entry point.
@@ -118,6 +125,7 @@ int main(void)
   SystemClock_Config();
   LL_Init10usTick(72000000);
   gpioInit();
+  usartInit();
   // Enabling CAN Clock
   LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_CAN);
 
@@ -132,16 +140,16 @@ int main(void)
   std::memcpy(uIDarr, uID, 12);
   std::copy(std::begin(uIDarr), std::end(uIDarr), std::begin(hwInfo.unique_id));
   kocherga::BootloaderController blc(platform, rom, ROMSIZE);
-  board::USARTCommunication usart_platform(blc, usartInit, USART2);
+  board::USARTCommunication usart_platform(blc, USART2);
   kocherga_ymodem::YModemProtocol protocol(usart_platform);
   kocherga::State state = blc.getState();
   if(state == kocherga::State::ReadyToBoot) {
     board::bootApplication();
   } //Jump to App
   else {
-    blc.upgradeApp(protocol);
+    while(blc.upgradeApp(protocol) < 0);
   }
-
+  board::bootApplication();
   while(1) {
     timeDelayMs(1);
   }

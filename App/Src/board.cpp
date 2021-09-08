@@ -95,7 +95,10 @@ USARTCommunication::Result USARTCommunication::receive(std::uint8_t& out_byte, s
 {
     uint64_t target = getCounter() + timeout.count();
     while(getCounter() < target && !LL_USART_IsActiveFlag_RXNE(usart_));
-    if(getCounter() >= target) return Result::Timeout;
+    if(getCounter() >= target) {
+        __NOP();
+        return Result::Timeout;
+    }
     out_byte = LL_USART_ReceiveData8(usart_);
     LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     return Result::Success;
@@ -108,7 +111,7 @@ USARTCommunication::Result USARTCommunication::receive(std::uint8_t& out_byte, s
  */
 std::chrono::microseconds USARTCommunication::getMonotonicUptime() const
 {
-    return  std::chrono::microseconds(getCounter());
+    return std::chrono::microseconds(getCounter());
 }
 
 void UAVCANCommunication::sleep(std::chrono::microseconds durations) const
@@ -189,12 +192,18 @@ bool UAVCANCommunication::tryScheduleReboot()
 
 std::int16_t ROMDriver::beginUpgrade()
 {
+    if(READ_BIT(FLASH->CR, FLASH_CR_LOCK) != RESET) {
+        FLASH->KEYR = FLASH_KEY1;
+        FLASH->KEYR = FLASH_KEY2;
+        if (FLASH->CR & FLASH_CR_LOCK) return -kocherga::ErrInvalidState;
+    }
     return kocherga::ErrOK;
 }
 
 std::int16_t ROMDriver::endUpgrade(bool success)
 {
     (void)success; // TODO: handling this 
+    FLASH->CR |= FLASH_CR_LOCK;
     return kocherga::ErrOK; 
 }
 
@@ -208,11 +217,11 @@ std::int16_t ROMDriver::read(std::size_t offset, void* data, std::uint16_t size)
 std::int16_t ROMDriver::write(std::size_t offset, const void* data, std::uint16_t size)
 {
     bool res;
-    if(READ_BIT(FLASH->CR, FLASH_CR_LOCK) != RESET) {
-        FLASH->KEYR = FLASH_KEY1;
-        FLASH->KEYR = FLASH_KEY2;
-        if (FLASH->CR & FLASH_CR_LOCK) return -kocherga::ErrInvalidState;
-    }
+    // if(READ_BIT(FLASH->CR, FLASH_CR_LOCK) != RESET) {
+    //     FLASH->KEYR = FLASH_KEY1;
+    //     FLASH->KEYR = FLASH_KEY2;
+    //     if (FLASH->CR & FLASH_CR_LOCK) return -kocherga::ErrInvalidState;
+    // }
     uint32_t tempPointer = 0;
     uint16_t tempData;
     if(offset + size > this->_size) return -kocherga::ErrInvalidParams;
@@ -249,7 +258,7 @@ std::int16_t ROMDriver::write(std::size_t offset, const void* data, std::uint16_
         }
         tempPointer += 2;
     }
-    FLASH->CR |= FLASH_CR_LOCK;
+    // FLASH->CR |= FLASH_CR_LOCK;
     return size;
 }
 

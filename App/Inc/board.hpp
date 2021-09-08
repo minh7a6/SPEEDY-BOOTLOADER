@@ -58,10 +58,7 @@ class USARTCommunication final : public kocherga_ymodem::IYModemPlatform
      */
     std::chrono::microseconds getMonotonicUptime() const override;
     public:
-        USARTCommunication(kocherga::BootloaderController& blc, std::function<void(void)> usart_init, USART_TypeDef *usart) : blc_(blc), usart_(usart)
-        {
-            usart_init();
-        }
+        USARTCommunication(kocherga::BootloaderController& blc, USART_TypeDef *usart) : blc_(blc), usart_(usart){}
 };
 
 class ROMDriver : public kocherga::IROMBackend
