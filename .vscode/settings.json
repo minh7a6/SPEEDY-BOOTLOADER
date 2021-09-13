@@ -76,7 +76,8 @@
         "set": "cpp",
         "iomanip": "cpp",
         "variant": "cpp",
-        "stm32f3xx_ll_pwr.h": "c"
+        "stm32f3xx_ll_pwr.h": "c",
+        "codecvt": "cpp"
     },
     "cmake.configureSettings": {
         "CMAKE_TOOLCHAIN_FILE" : "${workspaceFolder}/cmake/arm-none-eabi-gcc.cmake",

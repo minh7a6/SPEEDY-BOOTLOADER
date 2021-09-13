@@ -1,99 +1,107 @@
 #ifndef __BOARD_HPP
 #define __BOARD_HPP
 
-#include "kocherga_uavcan.hpp"
-#include "kocherga_ymodem.hpp"
+#include "kocherga_can.hpp"
 #include "stm32f3xx.h"
 
 #define ROMADDR         (0x8000000UL + 0xC800UL) // Start Address of Application
 namespace board
 {
-void bootApplication();
-class UAVCANCommunication final : public kocherga_uavcan::IUAVCANPlatform
+struct ArgumentsFromApplication
 {
-    kocherga::BootloaderController& blc_;
-    bool shouldExit_ = false;
-    void resetWatchdog() override;
-    void sleep(std::chrono::microseconds duration) const override;
-    std::uint64_t getRandomUnsignedInteger(std::uint64_t lower_bound,
-                                            std::uint64_t upper_bound) const override;
-    std::int16_t configure(std::uint32_t bitrate,
-                                   CANMode mode,
-                                   const CANAcceptanceFilterConfig& acceptance_filter) override;
-    std::int16_t send(const ::CanardCANFrame& frame, std::chrono::microseconds timeout) override;
-    std::pair<std::int16_t, ::CanardCANFrame> receive(std::chrono::microseconds timeout) override;
-    bool shouldExit() const override;
-    bool tryScheduleReboot() override;
-    public:
-        UAVCANCommunication(kocherga::BootloaderController& blc) : blc_(blc)
-        {
-            shouldExit_ = false;
-        }
+    bool linger;        ///< Whether to boot immediately or to wait for commands.
+
+    std::uint16_t uavcan_serial_node_id;                    ///< Invalid if unknown.
+
+    std::uint32_t uavcan_can_bitrate_first;             ///< Zeros if unknown.
+    std::uint32_t uavcan_can_bitrate_second;
+    std::uint8_t                            uavcan_can_protocol_version;    ///< v0 or v1; 0xFF if unknown.
+    std::uint8_t                            uavcan_can_node_id;             ///< Invalid if unknown.
+
+    std::uint8_t                  trigger_node_index;       ///< 0 - serial, 1 - CAN, >1 - none.
+    std::uint16_t                 file_server_node_id;      ///< Invalid if unknown.
+    std::array<std::uint8_t, 256> remote_file_path;         ///< Null-terminated string.
 };
+static_assert(std::is_trivial_v<ArgumentsFromApplication>);
+/**
+ * @brief boot to Application
+ * 
+ */
+void bootApplication();
 
-class USARTCommunication final : public kocherga_ymodem::IYModemPlatform
+/**
+ * @brief resetting using NVIC
+ * 
+ */
+void reset();
+class UAVCANCommunication final : public kocherga::can::ICANDriver
 {
-    kocherga::BootloaderController& blc_;
-    USART_TypeDef *usart_;
     /**
-     * Emits one byte into the port.
-     * @param byte      The byte to emit.
-     * @param timeout   The operation will be aborted if the byte could not be emitted in this amount of time.
-     * @return          @ref Result.
+     * @brief 
+     * 
+     * @param bitrate 
+     * @param silent 
+     * @param filter 
+     * @return std::optional<Mode> 
      */
-    Result emit(std::uint8_t byte, std::chrono::microseconds timeout) override;
+    auto configure(const Bitrate&                                  bitrate,
+                   const bool                                      silent,
+                   const kocherga::can::CANAcceptanceFilterConfig& filter) -> std::optional<Mode> override;
 
     /**
-     * Receives one byte from the port.
-     * @param out_byte  A reference where to store the received byte.
-     * @param timeout   The operation will be aborted if the byte could not be received in this amount of time.
-     * @return          @ref Result.
+     * @brief 
+     * 
+     * @param force_classic_can 
+     * @param extended_can_id 
+     * @param payload_size 
+     * @param payload 
+     * @return true 
+     * @return false 
      */
-    Result receive(std::uint8_t& out_byte, std::chrono::microseconds timeout) override;
+    auto push(const bool          force_classic_can,
+              const std::uint32_t extended_can_id,
+              const std::uint8_t  payload_size,
+              const void* const   payload) -> bool override;
 
     /**
-     * Returns the time since boot as a monotonic (i.e. steady) clock.
-     * The clock must never overflow.
-     * This is like @ref kocherga::IPlatform::getMonotonicUptime().
+     * @brief 
+     * 
+     * @param payload_buffer 
+     * @return std::optional<std::pair<std::uint32_t, std::uint8_t>> 
      */
-    std::chrono::microseconds getMonotonicUptime() const override;
-    public:
-        USARTCommunication(kocherga::BootloaderController& blc, USART_TypeDef *usart) : blc_(blc), usart_(usart){}
+    auto pop(PayloadBuffer& payload_buffer) -> std::optional<std::pair<std::uint32_t, std::uint8_t>> override;
 };
 
 class ROMDriver : public kocherga::IROMBackend
 {
-    const uint32_t _size;
     /**
      * @return 0 on success, negative on error
      */
-    std::int16_t beginUpgrade() override;
+    void beginWrite() override;
 
     /**
-     * The size cannot exceed 32767 bytes.
-     * @return number of bytes written; negative on error
+     * @brief 
+     * 
+     * @param offset 
+     * @param data 
+     * @param size 
+     * @return std::optional<std::size_t> 
      */
-    std::int16_t write(std::size_t offset, const void* data, std::uint16_t size) override;
-
+    auto write(const std::size_t offset, const std::byte* const data, const std::size_t size) -> std::optional<std::size_t> override;
+    
     /**
-     * @return 0 on success, negative on error
+     * @brief 
+     * 
      */
-    std::int16_t endUpgrade(bool success) override;
+    void endWrite() override;
 
     /**
      * The size cannot exceed 32767 bytes.
      * @return number of bytes read; negative on error
      */
-    std::int16_t read(std::size_t offset, void* data, std::uint16_t size) const override;
+    auto read(const std::size_t offset, std::byte* const out_data, const std::size_t size) const -> std::size_t override;
     public:
-        ROMDriver(std::uint32_t size) : _size(size) {}
-};
-
-class Platform : public kocherga::IPlatform
-{
-    std::chrono::microseconds getMonotonicUptime() const override;
-    public:
-        void jumpToApp();
+        ROMDriver() {}
 };
 }
 

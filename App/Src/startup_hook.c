@@ -1,7 +1,7 @@
 #include "main.h"
 #include <stdlib.h>
 #include "tlsf.h"
-#define TLSF_BUFFER     (0x1400)
+#define TLSF_BUFFER     (0x2000)
 
 tlsf_t _ins = NULL;
 static __attribute__((aligned(4))) uint8_t memPool[TLSF_BUFFER];

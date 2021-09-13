@@ -44,8 +44,7 @@ startup_stm32f303xc.s
 
 FILE(GLOB LIB_SRC
 ${TLSF}/tlsf.c
-${LIB}/libcanard/canard.c
-${LIB}/libcanard/drivers/stm32/canard_stm32.c
+Drivers/platform_specific_components/stm32/libcanard/bxcan/src/bxcan.c
 )
 
 FILE(GLOB APP_SRC 
@@ -68,10 +67,8 @@ ${TLSF}
 ${CMSIS}/Include
 ${DEVICE}/Include
 ${HAL}/Inc 
-${LIB}/libcanard
-${LIB}/libcanard/drivers/stm32
-${LIB}/kocherga
-${LIB}/senoval
+Drivers/platform_specific_components/stm32/libcanard/bxcan/src
+${LIB}/kocherga/kocherga
 )
 
 target_compile_definitions(
@@ -88,6 +85,8 @@ VDD_VALUE=3300
 PREFETCH_ENABLE=1
 STM32F303xC
 _DEBUG=0
+BXCAN_MAX_IFACE_INDEX=0
+BXCAN_BUSYWAIT_DELAY_SYSTEM_CORE_CLOCK=72000000
 )
 
 if(${FPU} MATCHES no)
@@ -114,7 +113,7 @@ ${MCU}
 ${UDEF}
 $<$<COMPILE_LANGUAGE:CXX>:${CPPWARN} ${CPPOPTS}> 
 $<$<COMPILE_LANGUAGE:C>:${CWARN} ${COPTS}>
-$<$<CONFIG:Debug>:-ggdb -Og>
+$<$<CONFIG:Debug>:-g -O2>
 $<$<CONFIG:Release>: -Os>
 $<$<CONFIG:MinSizeRel>: -Os>
 $<$<CONFIG:RelWithDebInfo>:-ggdb -Os>

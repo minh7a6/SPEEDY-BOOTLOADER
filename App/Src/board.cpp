@@ -3,10 +3,9 @@
 #include "stm32f3xx_ll_rcc.h"
 #include "stm32f3xx_ll_usart.h"
 #include "main.h"
-#include "canard_stm32.h"
-#include "watchdog.h"
+#include "bxcan.h"
 
-#define FLASH_TIMEOUT_VALUE      (50000U) /* 50 s */
+#define FLASH_TIMEOUT_VALUE      (50000000U) /* 50s */
 
 
 extern "C" {
@@ -69,178 +68,95 @@ void board::bootApplication()
     for (;;) { }        // Noreturn
 }
 
-
-/**
- * Emits one byte into the port.
- * @param byte      The byte to emit.
- * @param timeout   The operation will be aborted if the byte could not be emitted in this amount of time.
- * @return          @ref Result.
- */
-USARTCommunication::Result USARTCommunication::emit(std::uint8_t byte, std::chrono::microseconds timeout)
+void board::reset()
 {
-    uint64_t target = getCounter() + timeout.count();
-    while(getCounter() < target && !LL_USART_IsActiveFlag_TXE(usart_));
-    if(getCounter() >= target) return Result::Timeout;
-    LL_USART_TransmitData8(usart_, byte); 
-    return Result::Success;
+    NVIC_SystemReset();
 }
 
-/**
- * Receives one byte from the port.
- * @param out_byte  A reference where to store the received byte.
- * @param timeout   The operation will be aborted if the byte could not be received in this amount of time.
- * @return          @ref Result.
- */
-USARTCommunication::Result USARTCommunication::receive(std::uint8_t& out_byte, std::chrono::microseconds timeout)
-{
-    uint64_t target = getCounter() + timeout.count();
-    while(getCounter() < target && !LL_USART_IsActiveFlag_RXNE(usart_));
-    if(getCounter() >= target) {
-        __NOP();
-        return Result::Timeout;
-    }
-    out_byte = LL_USART_ReceiveData8(usart_);
-    LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    return Result::Success;
-}
-
-/**
- * Returns the time since boot as a monotonic (i.e. steady) clock.
- * The clock must never overflow.
- * This is like @ref kocherga::IPlatform::getMonotonicUptime().
- */
-std::chrono::microseconds USARTCommunication::getMonotonicUptime() const
-{
-    return std::chrono::microseconds(getCounter());
-}
-
-void UAVCANCommunication::sleep(std::chrono::microseconds durations) const
-{
-    timeDelayUs(durations.count());
-}
-
-void UAVCANCommunication::resetWatchdog()
-{
-    watchDogRefresh();
-}
-
-std::uint64_t UAVCANCommunication::getRandomUnsignedInteger(std::uint64_t lower_bound, std::uint64_t upper_bound) const
-{
-    if (lower_bound < upper_bound)
-    {
-        const auto rnd = std::uint64_t(std::rand()) * std::uint64_t(std::rand());
-        const std::uint64_t out = lower_bound + rnd % (upper_bound - lower_bound);
-        return out;
-    }
-    else
-    {
-        return lower_bound;
-    }
-}
-
-std::int16_t UAVCANCommunication::configure(std::uint32_t bitrate,
-                                      UAVCANCommunication::CANMode mode,
-                                      const UAVCANCommunication::CANAcceptanceFilterConfig& acceptance_filter)
+auto UAVCANCommunication::configure(const Bitrate& bitrate,
+                                        const bool silent,
+                                        const kocherga::can::CANAcceptanceFilterConfig& filter) -> std::optional<Mode>
 {
     std::int16_t res;
-    CanardSTM32CANTimings timings;
-    CanardSTM32AcceptanceFilterConfiguration config;
+    BxCANTimings timings;
+    BxCANFilterParams _filter;
+    _filter.extended_id = filter.extended_can_id;
+    _filter.extended_mask = filter.mask;
     LL_RCC_ClocksTypeDef refClock;
     LL_RCC_GetSystemClocksFreq(&refClock);
-    res = canardSTM32ComputeCANTimings(refClock.PCLK1_Frequency, bitrate, &timings);
-    if(res < 0) return res;
-    res = canardSTM32Init(&timings, (CanardSTM32IfaceMode)mode);
-    if(res < 0) return res;
-    config.id = acceptance_filter.id;
-    config.mask = acceptance_filter.mask;
-    res = canardSTM32ConfigureAcceptanceFilters(&config, 1);
-    return res;
+    res = bxCANComputeTimings(refClock.PCLK1_Frequency, bitrate.arbitration, &timings);
+    if(!res) Error_Handler();
+    res = bxCANConfigure(0, timings, silent);
+    if(!res) Error_Handler();
+    bxCANConfigureFilters(0, &_filter);
+    return Mode::Classic;
 
 }
 
-std::int16_t UAVCANCommunication::send(const ::CanardCANFrame& frame, std::chrono::microseconds timeout)
+auto UAVCANCommunication::push(const bool          force_classic_can,
+                                const std::uint32_t extended_can_id,
+                                const std::uint8_t  payload_size,
+                                const void* const   payload) -> bool
 {
-    (void)timeout;
-    return canardSTM32Transmit(&frame);
+    (void) force_classic_can;
+    uint64_t counter = getCounter();
+    return bxCANPush(0, counter, counter + 1000000, extended_can_id, payload_size, payload);
 }
 
-std::pair<std::int16_t, ::CanardCANFrame> UAVCANCommunication::receive(std::chrono::microseconds timeout)
+auto UAVCANCommunication::pop(kocherga::can::ICANDriver::PayloadBuffer& payload_buffer) -> std::optional<std::pair<std::uint32_t, std::uint8_t>>
 {
-    (void)timeout;
-    std::pair<std::int16_t, ::CanardCANFrame> result;
-    result.first = canardSTM32Receive(&result.second);
-    return result;
-}
-
-bool UAVCANCommunication::shouldExit() const
-{
-    return (this->shouldExit_) || ((this->blc_.getState() == kocherga::State::ReadyToBoot));
-}
-
-bool UAVCANCommunication::tryScheduleReboot()
-{
-    if (!this->shouldExit_)
-    {
-        this->shouldExit_ = true;
-        return true;
+    std::uint32_t extended_can_id; 
+    std::size_t size; 
+    if(!bxCANPop(0, &extended_can_id, &size, payload_buffer.data())) {
+        return {};
     }
-    else
-    {
-        return false;
+    else {
+        return std::make_pair(extended_can_id, size);
     }
 }
 
-std::int16_t ROMDriver::beginUpgrade()
+
+void ROMDriver::beginWrite()
 {
     if(READ_BIT(FLASH->CR, FLASH_CR_LOCK) != RESET) {
         FLASH->KEYR = FLASH_KEY1;
         FLASH->KEYR = FLASH_KEY2;
-        if (FLASH->CR & FLASH_CR_LOCK) return -kocherga::ErrInvalidState;
+        if (FLASH->CR & FLASH_CR_LOCK) Error_Handler();
     }
-    return kocherga::ErrOK;
 }
 
-std::int16_t ROMDriver::endUpgrade(bool success)
+void ROMDriver::endWrite()
 {
-    (void)success; // TODO: handling this 
     FLASH->CR |= FLASH_CR_LOCK;
-    return kocherga::ErrOK; 
 }
 
-std::int16_t ROMDriver::read(std::size_t offset, void* data, std::uint16_t size) const
+auto ROMDriver::read(const std::size_t offset, std::byte* const out_data, const std::size_t size) const -> std::size_t
 {
-    if(offset + size > this->_size) return -kocherga::ErrInvalidParams;
-    std::memcpy(data, (void*)(ROMADDR + offset), size);
+    std::memcpy((void*)out_data, (void*)(ROMADDR + offset), size);
     return size;
 }
 
-std::int16_t ROMDriver::write(std::size_t offset, const void* data, std::uint16_t size)
+auto ROMDriver::write(const std::size_t offset, const std::byte* const data, const std::size_t size) -> std::optional<std::size_t>
 {
     bool res;
-    // if(READ_BIT(FLASH->CR, FLASH_CR_LOCK) != RESET) {
-    //     FLASH->KEYR = FLASH_KEY1;
-    //     FLASH->KEYR = FLASH_KEY2;
-    //     if (FLASH->CR & FLASH_CR_LOCK) return -kocherga::ErrInvalidState;
-    // }
     uint32_t tempPointer = 0;
     uint16_t tempData;
-    if(offset + size > this->_size) return -kocherga::ErrInvalidParams;
     while(tempPointer < size) {
         // Better to erase page first if offset is beginning of a page
         if(((offset + tempPointer) % 0x800) == 0) {
             res = flashWait(FLASH_TIMEOUT_VALUE);
-            if(!res) return -kocherga::ErrROMWriteFailure;
+            if(!res) return {};
             SET_BIT(FLASH->CR, FLASH_CR_PER);
             WRITE_REG(FLASH->AR, ROMADDR + offset + tempPointer);
             SET_BIT(FLASH->CR, FLASH_CR_STRT);
             res = flashWait(FLASH_TIMEOUT_VALUE);
             CLEAR_BIT(FLASH->CR, FLASH_CR_PER);
-            if(!res) return -kocherga::ErrROMWriteFailure;
+            if(!res) return {};
         }
-        this->read(offset + tempPointer, &tempData, 2);
+        this->read(offset + tempPointer, (std::byte*)&tempData, 2);
         // Check to make sure the address is safe to write
         if(tempData != 0xFFFF) {
-            return -kocherga::ErrROMWriteFailure;
+            return {};
         }
         // save us a write :))
         if(*(__IO uint16_t*)((uint32_t)data + tempPointer) != 0xFFFF) {
@@ -253,17 +169,10 @@ std::int16_t ROMDriver::write(std::size_t offset, const void* data, std::uint16_
             }
             *(__IO uint16_t*)(ROMADDR + offset + tempPointer) = tempData; // write data
             res = flashWait(FLASH_TIMEOUT_VALUE);
-            if(!res) return -kocherga::ErrROMWriteFailure;
+            if(!res) return {};
             CLEAR_BIT(FLASH->CR, FLASH_CR_PG);
         }
         tempPointer += 2;
     }
-    // FLASH->CR |= FLASH_CR_LOCK;
     return size;
-}
-
-
-std::chrono::microseconds Platform::getMonotonicUptime() const
-{
-    return std::chrono::microseconds(getCounter());
 }

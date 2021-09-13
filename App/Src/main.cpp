@@ -21,12 +21,11 @@
 #include "main.h"
 #include <board.hpp>
 #include "timeDelay.h"
-#include "watchdog.h"
 #include "stm32f3xx_ll_usart.h"
+#include <type_traits>
+#include <string>
 
-
-#define ROMSIZE 0x33800
-static kocherga_uavcan::HardwareInfo hwInfo;
+#define ROMSIZE 0x33400
 
 void SystemClock_Config(void);
 
@@ -50,6 +49,7 @@ static inline void usartInit(void)
     LL_USART_Enable(USART2);
     __NOP();
 }
+
 static void gpioInit(void)
 {
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOF);
@@ -97,9 +97,7 @@ static void gpioInit(void)
   LL_GPIO_Init(GPIOA, &gpioStruct);
 }
 }
-
-
-
+const char fileName[] = "testUavcan";
 static inline uint8_t getID(void)
 {
   uint32_t res;
@@ -119,39 +117,66 @@ static inline uint8_t getID(void)
   */
 int main(void)
 {
+  const std::optional<board::ArgumentsFromApplication> args =
+    kocherga::VolatileStorage<board::ArgumentsFromApplication>(reinterpret_cast<std::uint8_t*>(0x1000'0000)).take();
+
   LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SYSCFG);
   LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
   NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
   SystemClock_Config();
   LL_Init10usTick(72000000);
   gpioInit();
-  usartInit();
+  // usartInit();
   // Enabling CAN Clock
   LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_CAN);
-
-  // set Watchdog 20s
-  // watchDogInit(20);
-  board::Platform platform;
-  board::ROMDriver rom(ROMSIZE);
-  hwInfo.major = 12;
-  hwInfo.minor = 34;
+  board::ROMDriver rom_backend;
+  kocherga::SystemInfo hwInfo;
   uint8_t *uID = (uint8_t*)(UID_BASE);
-  uint8_t uIDarr[12];
+  uint8_t uIDarr[12] = {0};
   std::memcpy(uIDarr, uID, 12);
   std::copy(std::begin(uIDarr), std::end(uIDarr), std::begin(hwInfo.unique_id));
-  kocherga::BootloaderController blc(platform, rom, ROMSIZE);
-  board::USARTCommunication usart_platform(blc, USART2);
-  kocherga_ymodem::YModemProtocol protocol(usart_platform);
-  kocherga::State state = blc.getState();
-  if(state == kocherga::State::ReadyToBoot) {
-    board::bootApplication();
-  } //Jump to App
-  else {
-    while(blc.upgradeApp(protocol) < 0);
+  hwInfo.node_name = fileName;
+  hwInfo.hardware_version = {01,01};
+  kocherga::Bootloader boot(rom_backend, hwInfo, ROMSIZE, args && args->linger);
+  board::UAVCANCommunication canDriver;
+  std::optional<board::UAVCANCommunication::Bitrate> can_bitrate;
+  std::optional<std::uint8_t>                  uavcan_can_version;
+  std::optional<kocherga::NodeID>              uavcan_can_node_id;
+  if (args)
+  {
+      if (args->uavcan_can_bitrate_first > 0)
+      {
+          can_bitrate = board::UAVCANCommunication::Bitrate{args->uavcan_can_bitrate_first, args->uavcan_can_bitrate_second};
+      }
+      uavcan_can_version = args->uavcan_can_protocol_version;     // Will be ignored if invalid.
+      uavcan_can_node_id = args->uavcan_can_node_id;              // Will be ignored if invalid.
   }
-  board::bootApplication();
+  std::string fileName = "Test";
+  kocherga::can::CANNode canNode(canDriver, hwInfo.unique_id);
+  bool res = boot.addNode(&canNode);
+  if (args && (args->trigger_node_index < 2) && res) {
+    boot.trigger(args->trigger_node_index, 
+                  args->file_server_node_id, 
+                  // std::strlen((char*)args->remote_file_path.data()),
+                  fileName.length(), 
+                  (uint8_t*)fileName.data());
+  }
+
+
   while(1) {
-    timeDelayMs(1);
+    const auto uptime = getCounter();
+    LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    if (const auto fin = boot.poll(std::chrono::microseconds(uptime)))
+    {
+        if (*fin == kocherga::Final::BootApp)
+        {
+            board::bootApplication();
+        }
+        if (*fin == kocherga::Final::Restart)
+        {
+            board::reset();
+        }
+    }
   }
 }
 
