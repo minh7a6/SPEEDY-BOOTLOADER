@@ -39,9 +39,9 @@ class UAVCANCommunication final : public kocherga::can::ICANDriver
     /**
      * @brief 
      * 
-     * @param bitrate 
-     * @param silent 
-     * @param filter 
+     * @param bitrate configure for bitrate
+     * @param silent if silent or not
+     * @param filter setting up the filter for CAN Bus
      * @return std::optional<Mode> 
      */
     auto configure(const Bitrate&                                  bitrate,
@@ -51,12 +51,12 @@ class UAVCANCommunication final : public kocherga::can::ICANDriver
     /**
      * @brief 
      * 
-     * @param force_classic_can 
-     * @param extended_can_id 
-     * @param payload_size 
-     * @param payload 
-     * @return true 
-     * @return false 
+     * @param force_classic_can if it needs classic can
+     * @param extended_can_id CAN eID
+     * @param payload_size size of the payload
+     * @param payload pointer to the payload
+     * @return true if push is successful
+     * @return false if push is unsuccessful
      */
     auto push(const bool          force_classic_can,
               const std::uint32_t extended_can_id,
@@ -66,7 +66,7 @@ class UAVCANCommunication final : public kocherga::can::ICANDriver
     /**
      * @brief 
      * 
-     * @param payload_buffer 
+     * @param payload_buffer get the buffer
      * @return std::optional<std::pair<std::uint32_t, std::uint8_t>> 
      */
     auto pop(PayloadBuffer& payload_buffer) -> std::optional<std::pair<std::uint32_t, std::uint8_t>> override;

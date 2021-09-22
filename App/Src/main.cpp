@@ -50,6 +50,11 @@ static inline void usartInit(void)
     __NOP();
 }
 
+/**
+ * @brief Initialize GPIO
+ * 
+ */
+
 static void gpioInit(void)
 {
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOF);
@@ -97,7 +102,7 @@ static void gpioInit(void)
   LL_GPIO_Init(GPIOA, &gpioStruct);
 }
 }
-const char fileName[] = "testUavcan";
+const char nodeName[] = "testUavcan";
 static inline uint8_t getID(void)
 {
   uint32_t res;
@@ -135,7 +140,7 @@ int main(void)
   uint8_t uIDarr[12] = {0};
   std::memcpy(uIDarr, uID, 12);
   std::copy(std::begin(uIDarr), std::end(uIDarr), std::begin(hwInfo.unique_id));
-  hwInfo.node_name = fileName;
+  hwInfo.node_name = nodeName;
   hwInfo.hardware_version = {01,01};
   kocherga::Bootloader boot(rom_backend, hwInfo, ROMSIZE, args && args->linger);
   board::UAVCANCommunication canDriver;
@@ -151,13 +156,12 @@ int main(void)
       uavcan_can_version = args->uavcan_can_protocol_version;     // Will be ignored if invalid.
       uavcan_can_node_id = args->uavcan_can_node_id;              // Will be ignored if invalid.
   }
-  std::string fileName = "Test";
+  std::string fileName = "Test"; // Testing node Name
   kocherga::can::CANNode canNode(canDriver, hwInfo.unique_id);
   bool res = boot.addNode(&canNode);
   if (args && (args->trigger_node_index < 2) && res) {
     boot.trigger(args->trigger_node_index, 
-                  args->file_server_node_id, 
-                  // std::strlen((char*)args->remote_file_path.data()),
+                  args->file_server_node_id,
                   fileName.length(), 
                   (uint8_t*)fileName.data());
   }
@@ -165,7 +169,7 @@ int main(void)
 
   while(1) {
     const auto uptime = getCounter();
-    LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    // LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     if (const auto fin = boot.poll(std::chrono::microseconds(uptime)))
     {
         if (*fin == kocherga::Final::BootApp)

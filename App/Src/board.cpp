@@ -50,6 +50,7 @@ void board::bootApplication()
     // Deinit all peripherals that may have been used
     // It is crucial to disable ALL peripherals, else a spurious interrupt will crash the application
     LL_APB1_GRP1_DisableClock(LL_APB1_GRP1_PERIPH_USART2);
+    LL_APB2_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_CAN);
 
     // Kill the sys tick
     SysTick->CTRL = 0;
@@ -100,6 +101,7 @@ auto UAVCANCommunication::push(const bool          force_classic_can,
 {
     (void) force_classic_can;
     uint64_t counter = getCounter();
+    // setting up for 1 second
     return bxCANPush(0, counter, counter + 1000000, extended_can_id, payload_size, payload);
 }
 

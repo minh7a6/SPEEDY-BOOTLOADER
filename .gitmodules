@@ -1,6 +1,7 @@
 [submodule "Lib/kocherga"]
 	path = Lib/kocherga
 	url = https://github.com/Zubax/kocherga
+	branch = v0.2
 [submodule "Lib/tlsf"]
 	path = Lib/tlsf
 	url = https://github.com/mattconte/tlsf

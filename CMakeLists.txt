@@ -113,7 +113,7 @@ ${MCU}
 ${UDEF}
 $<$<COMPILE_LANGUAGE:CXX>:${CPPWARN} ${CPPOPTS}> 
 $<$<COMPILE_LANGUAGE:C>:${CWARN} ${COPTS}>
-$<$<CONFIG:Debug>:-g -O2>
+$<$<CONFIG:Debug>:-g -Os>
 $<$<CONFIG:Release>: -Os>
 $<$<CONFIG:MinSizeRel>: -Os>
 $<$<CONFIG:RelWithDebInfo>:-ggdb -Os>
