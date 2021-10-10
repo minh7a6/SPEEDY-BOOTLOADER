@@ -101,12 +101,15 @@ auto UAVCANCommunication::push(const bool          force_classic_can,
 {
     (void) force_classic_can;
     uint64_t counter = getCounter();
-    // setting up for 1 second
-    return bxCANPush(0, counter, counter + 1000000, extended_can_id, payload_size, payload);
+    const bool ok = tx_queue_.push(std::chrono::microseconds(counter), force_classic_can, extended_can_id, payload_size, payload);
+    pollTxQueue(std::chrono::microseconds(counter));
+    return ok;
 }
 
 auto UAVCANCommunication::pop(kocherga::can::ICANDriver::PayloadBuffer& payload_buffer) -> std::optional<std::pair<std::uint32_t, std::uint8_t>>
 {
+    uint64_t counter = getCounter();
+    pollTxQueue(std::chrono::microseconds(counter));
     std::uint32_t extended_can_id; 
     std::size_t size; 
     if(!bxCANPop(0, &extended_can_id, &size, payload_buffer.data())) {

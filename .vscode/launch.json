@@ -10,7 +10,8 @@
             "servertype": "openocd",
             "configFiles": ["board/st_nucleo_f3.cfg"],
             "demangle": true,
-            "runToMain": true
+            "runToMain": true,
+            "svdFile": "${workspaceRoot}/STM32F303.svd"
         }
     ]
 }

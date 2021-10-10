@@ -25,7 +25,13 @@
 #include <type_traits>
 #include <string>
 
+// Start Address of Application
+#if defined(DEBUG_BUILD)
 #define ROMSIZE 0x33400
+#else
+#define ROMSIZE         0x36C00 
+#endif
+
 
 void SystemClock_Config(void);
 
@@ -102,7 +108,7 @@ static void gpioInit(void)
   LL_GPIO_Init(GPIOA, &gpioStruct);
 }
 }
-const char nodeName[] = "testUavcan";
+// const char nodeName[] = "testUavcan";
 static inline uint8_t getID(void)
 {
   uint32_t res;
@@ -137,10 +143,11 @@ int main(void)
   board::ROMDriver rom_backend;
   kocherga::SystemInfo hwInfo;
   uint8_t *uID = (uint8_t*)(UID_BASE);
-  uint8_t uIDarr[12] = {0};
-  std::memcpy(uIDarr, uID, 12);
-  std::copy(std::begin(uIDarr), std::end(uIDarr), std::begin(hwInfo.unique_id));
-  hwInfo.node_name = nodeName;
+  std::array<uint8_t, 12> uIDarr;
+  // uint8_t uIDarr[12] = {0};
+  std::memcpy(uIDarr.data(), uID, 12);
+  std::copy(uIDarr.begin(), uIDarr.end(), std::begin(hwInfo.unique_id));
+  hwInfo.node_name = NODENAME;
   hwInfo.hardware_version = {01,01};
   kocherga::Bootloader boot(rom_backend, hwInfo, ROMSIZE, args && args->linger);
   board::UAVCANCommunication canDriver;
@@ -156,12 +163,17 @@ int main(void)
       uavcan_can_version = args->uavcan_can_protocol_version;     // Will be ignored if invalid.
       uavcan_can_node_id = args->uavcan_can_node_id;              // Will be ignored if invalid.
   }
-  std::string fileName = "Test"; // Testing node Name
-  kocherga::can::CANNode canNode(canDriver, hwInfo.unique_id);
+  std::string fileName = "Test.bin"; // Testing node Name
+  kocherga::can::CANNode canNode(canDriver,
+                                  hwInfo.unique_id,
+                                  can_bitrate,
+                                  uavcan_can_version,
+                                  uavcan_can_node_id);
   bool res = boot.addNode(&canNode);
+  const uint8_t fileServerId = 127;
   if (args && (args->trigger_node_index < 2) && res) {
     boot.trigger(args->trigger_node_index, 
-                  args->file_server_node_id,
+                  fileServerId,
                   fileName.length(), 
                   (uint8_t*)fileName.data());
   }

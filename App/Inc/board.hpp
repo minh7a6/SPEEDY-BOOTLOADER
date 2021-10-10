@@ -3,8 +3,13 @@
 
 #include "kocherga_can.hpp"
 #include "stm32f3xx.h"
+#include "bxcan.h"
 
+#if defined(DEBUG_BUILD)
 #define ROMADDR         (0x8000000UL + 0xC800UL) // Start Address of Application
+#else
+#define ROMADDR         (0x8000000UL + 0x9000UL) // Start Address of Application
+#endif
 namespace board
 {
 struct ArgumentsFromApplication
@@ -36,6 +41,20 @@ void bootApplication();
 void reset();
 class UAVCANCommunication final : public kocherga::can::ICANDriver
 {
+    void pollTxQueue(const std::chrono::microseconds now)
+    {
+        if (const auto* const item = tx_queue_.peek())         // Take the top frame from the prioritized queue.
+        {
+            const bool expired = now > (item->timestamp + kocherga::can::SendTimeout);  // Drop expired frames.
+            if (expired || bxCANPush(0, now.count(), now.count() + 100,   // force_classic_can means no DLE, no BRS.
+                                    item->extended_can_id,
+                                    item->payload_size,
+                                    item->payload))
+            {
+                tx_queue_.pop();    // Enqueued into the HW TX mailbox or expired -- remove from the SW queue.
+            }
+        }
+    }
     /**
      * @brief 
      * 
@@ -70,6 +89,9 @@ class UAVCANCommunication final : public kocherga::can::ICANDriver
      * @return std::optional<std::pair<std::uint32_t, std::uint8_t>> 
      */
     auto pop(PayloadBuffer& payload_buffer) -> std::optional<std::pair<std::uint32_t, std::uint8_t>> override;
+    kocherga::can::TxQueue<void*(*)(std::size_t), void(*)(void*)> tx_queue_;
+    public:
+        UAVCANCommunication(): tx_queue_(&malloc, &free) {}
 };
 
 class ROMDriver : public kocherga::IROMBackend
