@@ -25,8 +25,11 @@ set(CWARN -Wall -Wextra -Wundef -Wstrict-prototypes)
 
 # Define C++ warning options here.
 set(CPPWARN -Wall -Wextra -Wundef)
-
+if(CMAKE_BUILD_TYPE MATCHES Debug)
 set(LINKERSCRIPT STM32F303CCTx_FLASH.ld)
+else()
+set(LINKERSCRIPT STM32F303CCTx_FLASH_Rel.ld)
+endif()
 set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/${LINKERSCRIPT})
 
 FILE(GLOB STM32CUBE ${HAL}/Src/*.c)
@@ -131,7 +134,7 @@ ${MCU}
 -lnosys
 -Wl,-Map=${PROJECT_NAME}.map,--cref
 -Wl,--no-warn-mismatch
--Wl,--library-path=${LINKER_SRC}
+-Wl,--library-path=${CMAKE_SOURCE_DIR}
 -Wl,--script=${LINKER_SCRIPT},--gc-sections
 -Wl,--print-memory-usage
 )
